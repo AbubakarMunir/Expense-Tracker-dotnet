@@ -1,44 +1,51 @@
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+builder.Services.AddDbContext<AppDb>(opt =>
+    opt.UseSqlite("Data Source=expenses.db"));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+app.UseSwagger();
+app.UseSwaggerUI();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+using (var scope = app.Services.CreateScope())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    var db = scope.ServiceProvider.GetRequiredService<AppDb>();
+    db.Database.EnsureCreated();
 }
 
-app.UseHttpsRedirection();
+app.MapGet("/expenses", async (AppDb db) =>
+    await db.Expenses.OrderByDescending(e => e.Date).ToListAsync());
 
-var summaries = new[]
+app.MapPost("/expenses", async (Expense e, AppDb db) =>
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    db.Expenses.Add(e);
+    await db.SaveChangesAsync();
+    return Results.Created($"/expenses/{e.Id}", e);
+});
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast")
-.WithOpenApi();
+app.MapGet("/health", () => "ok");
 
 app.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
+public class Expense
 {
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
+    public int Id { get; set; }
+    public DateTime Date { get; set; }
+    public string Category { get; set; } = "";
+    public double Amount { get; set; }
+    public string Notes { get; set; } = "";
+}
+
+public class AppDb : DbContext
+{
+    public AppDb(DbContextOptions<AppDb> options) : base(options) { }
+    public DbSet<Expense> Expenses => Set<Expense>();
+    protected override void OnModelCreating(ModelBuilder mb)
+    {
+        mb.Entity<Expense>().Property(e => e.Id).ValueGeneratedOnAdd();
+    }
 }
